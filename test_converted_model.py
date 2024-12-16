@@ -24,9 +24,9 @@ class TFLiteModel:
         return self.interpreter.get_tensor(self.output_details[0]["index"])
 
 
-def init_mpipe_blendshapes_model():
+def init_mpipe_blendshapes_model(task_path = "face_landmarker_v2_with_blendshapes.task"):
     base_options = python.BaseOptions(
-        model_asset_path="face_landmarker_v2_with_blendshapes.task",
+        model_asset_path=task_path,
         # delegate=mp.tasks.BaseOptions.Delegate.GPU,
         delegate=mp.tasks.BaseOptions.Delegate.CPU,
     )
@@ -66,6 +66,8 @@ if __name__ == "__main__":
             np.array([[i.x, i.y, i.z] for i in mesh_results.face_landmarks[face_idx]])
         )
     landmarks_np = np.array(landmarks_np).astype("float32")
+    print(landmarks_np.shape)
+
     # Convert blendshapes to numpy
     blendshapes_np = np.array(
         [
@@ -82,18 +84,28 @@ if __name__ == "__main__":
     # Compare the results
     for face_idx in range(len(mesh_results.face_landmarks)):
         print("-" * 33 + f" Face {face_idx + 1} " + "-" * 32)
-        print("Blendshapes from MediaPipe:")
-        print(blendshapes_np[face_idx].round(3)[:12])
+
+        mp_blendshapes = blendshapes_np[face_idx].round(3)
+        
+
         # Run the image through PyTorch
         lmks_tensor = landmarks_np[
             face_idx : face_idx + 1, BLENDSHAPE_MODEL_LANDMARKS_SUBSET, :2
         ]
         scaled_lmks_tensor = lmks_tensor * img_size
+        print("Blendshape model input shape:", scaled_lmks_tensor.shape)
         with torch.no_grad():
             pytorch_output = blendshape_model(torch.from_numpy(scaled_lmks_tensor))
-        print("Blendshapes from PyTorch:")
-        print(pytorch_output.squeeze().detach().numpy().round(3)[:12])
+
+        pytorch_blendshapes = pytorch_output.squeeze().detach().numpy().round(3)
+
+
         # Run the image through TFLite
         label = tflite_model.predict(scaled_lmks_tensor)
-        print("Blendshapes from TFLite:")
-        print(label.round(3)[:12])
+        label = label.round(3)
+        
+        # compare pytorch_blendshapes and mp_blendshapes
+        mp_pytorch_comp = np.allclose(pytorch_blendshapes, mp_blendshapes, atol=1e-3)
+        print(f"All {len(pytorch_blendshapes)} Mediapipe and Pytorch blendhsapes the same?: {mp_pytorch_comp}")
+
+        
